@@ -27,6 +27,7 @@ from mininet.log import setLogLevel, info
 from topology.topology import PathGuardTopo, cleanup_mininet
 from monitoring.monitor import collect_once, log_record, CSVWriter
 from ai.train_model import FaultDetector
+from recovery.recover import RecoveryEngine
 
 # ANSI colours
 RED = "\033[91m"
@@ -49,7 +50,7 @@ def run_detection_round(net, detector, round_label):
     print(f"  {round_label}")
     print(f"{'═' * 60}")
 
-    records = collect_once(net, ping_count=4, ping_timeout=10)
+    records = collect_once(net, ping_count=2, ping_timeout=3)
 
     # Write records to CSV so the dashboard can read them in real-time
     csv_path = project_root / "datasets" / "network_data.csv"
@@ -146,6 +147,8 @@ def main():
     open(project_root / "results" / "events.log", "w").close()
     log_event("Dashboard started. Monitoring initialized.")
 
+    recovery_engine = RecoveryEngine()
+
     # ── Phase 1: Normal traffic ──────────────────────────────────
     log_event("NORMAL traffic baseline established.")
     faults = run_detection_round(net, detector, "📊 PHASE 1: Normal Traffic (all links up)")
@@ -163,12 +166,11 @@ def main():
         # ── Phase 2: Degradation Warning ─────────────────────────────
         print(f"\n{YELLOW}⚠️  Injecting degradation on link {link_src} ↔ {link_dst}...{RESET}")
         log_event(f"WARNING: Degradation injected on link {link_name}")
-        # Use tc to inject some delay/loss to trigger WARNING
         net.get(link_src).cmd(f'tc qdisc change dev {link_src}-eth1 root netem delay 50ms loss 5%')
         time.sleep(2)
         faults = run_detection_round(net, detector, f"⚠️  PHASE 2: Degradation {link_name} (Warning)")
 
-        # ── Phase 3: Link failure ────────────────────────────────────
+        # ── Phase 3: Link failure & Real Dynamic Reroute ───────────────
         print(f"\n{RED}⚡ Taking down link {link_src} ↔ {link_dst}...{RESET}")
         t_fail = time.time()
         net.configLinkStatus(link_src, link_dst, "down")
@@ -176,19 +178,38 @@ def main():
         time.sleep(3)
         t_detect = time.time()
 
+        # Run AI monitoring to record down state
         faults = run_detection_round(net, detector, f"🚨 PHASE 3: Link {link_name} DOWN (Critical)")
-        log_event("Recovery triggered. Dynamic rerouting initiated.")
+        
+        # Now trigger the dynamic SDN Rerouting REST controller
+        print(f"\n{CYAN}🛡️ Invoking PathGuard Recovery Engine (SDN REST Trigger)...{RESET}")
+        
+        # Construct current link metrics for evaluation
+        current_metrics = {}
+        for ln in ["s1-s2", "s2-s3", "s1-s3"]:
+            if ln == link_name:
+                current_metrics[ln] = {"loss": 100.0, "latency": 0.0, "status": "down"}
+            else:
+                current_metrics[ln] = {"loss": 0.0, "latency": 5.0, "status": "up"}
+        
+        # Fire dynamic restoration API & validation ping
+        rec_res = recovery_engine.trigger_recovery(link_name, current_metrics, net=net)
+        t_recover = time.time()
 
-        # ── Phase 4: Restore link ────────────────────────────────────
+        # ── Phase 4: Restore link & Reset POX Tables ────────────────────
         print(f"\n{YELLOW}🔄 Restoring link {link_src} ↔ {link_dst}...{RESET}")
         net.get(link_src).cmd(f'tc qdisc change dev {link_src}-eth1 root netem delay 1ms loss 0%')
         net.configLinkStatus(link_src, link_dst, "up")
-        log_event(f"Link {link_name} restored. Spanning tree reconverging.")
-        time.sleep(5)
-        t_recover = time.time()
+        log_event(f"Link {link_name} restored physically.")
+        
+        # Reset controller routing rules back to Normal (Full-Mesh)
+        print(f"{CYAN}🌐 Notifying SDN Controller to reset to Full-Mesh Normal State...{RESET}")
+        recovery_engine.reset_to_normal()
+            
+        time.sleep(3)
 
-        # Warm-up after restore to let spanning tree reconverge
-        print(f"{CYAN}⏳ Waiting for spanning tree reconvergence...{RESET}")
+        # Warm-up after restore
+        print(f"{CYAN}⏳ Waiting for flow tables to settle...{RESET}")
         collect_once(net, ping_count=2, ping_timeout=5)
         print(f"{GREEN}✓ Network re-stabilised{RESET}")
         log_event("Traffic restored to NORMAL.")

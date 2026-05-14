@@ -1,5 +1,16 @@
 {
-    "detection_time_sec": 3.03,
-    "recovery_time_sec": 104.79,
-    "total_downtime_sec": 107.82
+    "successful_recoveries": 3,
+    "failed_recoveries": 0,
+    "average_recovery_time_sec": 8.65,
+    "total_recoveries_count": 3,
+    "last_recovery": {
+        "timestamp": "2026-05-14T15:32:35Z",
+        "status": "SUCCESS",
+        "failed_link": "s1-s3",
+        "selected_path": "Path_B",
+        "duration_sec": 8.65
+    },
+    "detection_time_sec": 3.06,
+    "recovery_time_sec": 8.65,
+    "total_downtime_sec": 11.71
 }

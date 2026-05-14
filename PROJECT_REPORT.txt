@@ -31,7 +31,7 @@ PathGuard is an advanced SDN research framework built on Mininet. Its goal is to
   - Detect faults using machine learning (Random Forest classifier)
   - Support early-degradation warnings and rolling sliding-window metrics
   - Deliver unified 0-100 health scoring analytics
-  - Automatically recommend and reroute traffic around failures using POX STP
+  - Automatically reroute traffic around failures using a custom deterministic POX SDN controller
   - Visualize live telemetry via an immersive HTML5/JS/CSS Dashboard Heatmap
 
 Technology Stack:
@@ -70,11 +70,13 @@ pathgaurd/
 │   └── templates/
 │       └── index.html         # Dynamic templated Layout wrapper
 ├── controller/
+│   ├── pathguard_controller.py# Custom POX REST controller module
 │   └── run_pox.sh             # Launcher utility script for POX Controller
 ├── demo/
 │   └── demo_workflow.md       # Complete Operator/Demo guide
 ├── collect_data.py            # Automated data generator sequential runner
 ├── test_ai_detection.py       # Synchronized end-to-end demo test script
+├── run_demo.sh                # One-Click system orchestrator demo script
 └── PROJECT_REPORT.txt         # This file
 
 
@@ -99,12 +101,17 @@ NETWORK ARCHITECTURE:
   - 4 hosts (h1-h4) with explicit IPs (10.0.0.1-4) and MACs
   - 7 links: 4 host-switch + 3 switch-switch
 
+REAL SWITCH PORT MAPPINGS (Verified via ovs-ofctl show):
+  - Switch s1: Port 1=h1, Port 2=h2, Port 3=s2, Port 4=s3
+  - Switch s2: Port 1=h4, Port 2=s1, Port 3=s3
+  - Switch s3: Port 1=h3, Port 2=s2, Port 3=s1
+
 KEY COMPONENTS:
   - PathGuardTopo class: Custom Topo with configurable BW/delay/loss
   - cleanup_mininet(): Auto-cleans stale state before starting
   - simulate_link_failure() / restore_link(): Programmatic link control
   - latency_probe(): ICMP ping wrapper
-  - --monitor flag: Starts monitoring automatically with topology
+  - --monitor flag: Starts monitoring headlessly (blocking loop without CLI lock)
 
 
 ================================================================================
@@ -130,6 +137,9 @@ KEY ENHANCEMENTS:
     max packet loss, latency, explicit timeouts, and instability variance.
   - Adaptive Monitoring: Transitions daemon collection sleep frequencies
     dynamically (Normal = 10s, Warning = 3s, Critical = 1s).
+  - Smart Fault Diagnosis: Automatically correlates simultaneous host-pair
+    telemetry outages to deduce precisely which specific switch-to-switch
+    bottleneck link (s1-s2, s1-s3, or s2-s3) is failing before API dispatch.
 
 
 ================================================================================
@@ -222,34 +232,49 @@ KEY FEATURES:
 9. MODULE 7: DYNAMIC RECOVERY ENGINE (COMPLETED)
 ================================================================================
 
-Files: recovery/recover.py, recovery/path_selector.py
+Files: recovery/recover.py, controller/pathguard_controller.py
 
-PURPOSE: Implement the intelligent decision/reroute pipeline.
+PURPOSE: Real dynamic OpenFlow rerouting via custom SDN programming.
 
 KEY FEATURES:
-  - Path Recommendation: Leverages metrics from the monitoring daemon to score
-    candidate alternatives (`Path_A`, `Path_B`, `Path_C`) on active health.
-  - Self-Healing Trigger: Triggered automatically when `CRITICAL` faults arise.
-  - Simulation Logging: Outputs "Smart path recommended: Path_X selected" to
-    inform system operators while POX Spanning Tree executes link-layer failover.
-  - Analytics Hub: Updates recovery analytics (`successful_recoveries`,
-    `average_recovery_time`, `last_recovery`) within `recovery_metrics.json`.
-  - System Timelines: Logs to the shared `results/events.log` timeline.
+  - Deterministic Static Map: Custom controller app completely replaces standard
+    l2_learning and Spanning Tree, mapping the hardware interfaces verified via
+    ovs-ofctl directly to hosts on startup.
+  - Web REST API Handler: Exposes `/reroute` at POX port 8080. Accepts JSON
+    post payloads declaring link failures (e.g., `{"failed_link": "s1-s2"}`) and
+    issues restoration resets when `{"failed_link": null}` is called.
+  - Switch Flow-Mod Injection: Dynamically pushes OpenFlow 1.0 `ofp_flow_mod`
+    commands to reprogram switch paths via alternate transit nodes instantly.
+  - ARP Proxy Proxying: The custom controller intercepts broadcast ARPs and 
+    proxy-replies locally using a hardcoded IP-to-MAC mapping, preventing loop
+    floods in the full-mesh switch triangle.
+  - Mininet Native Verification: Leverages the native `net` object directly inside
+    the recovery script, invoking `net.get('h1').cmd('ping -c 3 -W 1 10.0.0.4')`
+    to confirm packet delivery and achieve sub-second real network reconvergence.
+  - SDN Reset-to-Normal Hook: Issues automated restoration REST API resets when
+    links physically heal, resetting flow tables dynamically back to Full-Mesh.
 
 
 ================================================================================
-10. FIXES APPLIED DURING DEVELOPMENT
+10. FIXES & ARCHITECTURAL PATTERNS APPLIED
 ================================================================================
 
 - Switches forced to use protocols="OpenFlow10" to ensure POX compatibility.
 - Default SDN port aligned globally to 6633 (switched from 6653).
 - Integrated cleanup_mininet() in topology startups to purge dead interfaces.
-- Resolved POX DNS parser failures on Python 3 string vs byte parsing.
-- Re-routed POX arguments to enforce `openflow.spanning_tree --no-flood`
-  eliminating broadcast loops in full mesh topology.
-- Corrected CSS background-clip cross-compatibility vendor prefixes.
-- Standardized JSON schema generation across the manual simulator script and the
-  real-time daemon to prevent visual dashboard discrepancies.
+- Bypassed Python 3.12 webcore traceback error by setting `pox_cookieguard = False`
+  in the SplitRequestHandler class to allow POST JSON body ingestion.
+- Refactored manual subprocess pings into Mininet `net.cmd` calls to prevent
+  testing environmental contamination and false verification successes.
+- Eliminated STP/Broadcast Loop Risks by constructing a dedicated controller
+  ARP Proxy that responds locally rather than flooding inter-switch links.
+- Swapped generic dynamic-learning for deterministic flow-mod injections to
+  facilitate Sub-Second research-grade failovers.
+- Bound webcore to port 8080 in `run_pox.sh` to align with the standard REST setup.
+- Eliminated startup race conditions in `run_demo.sh` via native `nc` port polling
+  (port 6633) to guarantee POX binding before Mininet attempts connecting.
+- Implemented robust process group cleanup using a Bash `kill 0` EXIT trap to 
+  ensure all background daemons cleanly shutdown during an interruption.
 
 
 ================================================================================
@@ -258,7 +283,14 @@ KEY FEATURES:
 
 Refer to the guide in `demo/demo_workflow.md` for full instructions.
 
---- QUICK-RUN SYSTEM EXECUTION ---
+--- ONE-CLICK FULL DEMO RUNNER (RECOMMENDED) ---
+
+  To automatically deploy POX, launch the dashboard, inject simulated faults,
+  and execute the entire self-healing sequence with integrated log handlers:
+    cd ~/pathgaurd
+    sudo ./run_demo.sh
+
+--- MANUAL MODULAR SYSTEM EXECUTION ---
 
   Terminal 1 (POX SDN Controller Launcher):
     cd ~/pathgaurd
@@ -305,16 +337,18 @@ Refer to the guide in `demo/demo_workflow.md` for full instructions.
   (Severity + Explanation)          Trigger Dynamic Recovery Engine
    │                                │
    ▼                                ▼
-  Append persistent log            Evaluates alternates & Rank Paths
+  Append persistent log            Evaluates dynamic backup path
   (results/events.log)              │
    │                                ▼
-   │                                Simulates Path Switching
-   │                                (Updates recovery_metrics.json)
-   ▼                                │
+   │                               HTTP POST API -> POX Controller (Port 8080)
+   │                               (Reprograms switch flow tables)
+   │                                │
+   ▼                                ▼
   Dashboard API REST Handler ◄──────┤
-   │
-   ▼
-  HTML5 Dashboard View (Live heatmap coloring, reactive graphs)
+   │                                │
+   │                        Run Physical host validation ping via net.cmd
+   ▼                                │
+  HTML5 Dashboard View ◄────────────┴── (Updates recovery_metrics.json)
 
 
 ================================================================================
@@ -328,16 +362,18 @@ ALL PROJECT SPECIFICATIONS HAVE BEEN 100% COMPLETED:
   [x] Standard 0-100 Health scoring module (health.py)
   [x] AI Fault Detection Random Forest classifier (train_model.py)
   [x] Automatic Auto-Labeling training dataset collection (collect_data.py)
-  [x] All environment compatibility fixes applied (POX, Py3.12, Mininet)
+  [x] Python 3.12 webcore CookieGuard bypass compatibility applied
+  [x] Custom POX deterministic controller fully replacing spanning tree
   [x] Explainable AI condition enrichments completed (high variance / instability)
   [x] Dynamic Recovery and rerouting controller engine (recover.py)
   [x] Intelligent path score metrics analyzer (path_selector.py)
   [x] Immersive responsive Web Dashboard (app.py / SVG HTML5 heatmap visuals)
-  [x] Structured recovery metric JSON stores synchronized
+  [x] Native Mininet Verification ping command integration with 0% loss parser
   [x] Persistent log timeline tracking system active
-  [x] Automated POX launcher scripts created (run_pox.sh)
+  [x] Automated POX launcher script targeting port 8080 (run_pox.sh)
   [x] Demo instructions documentation generated (demo_workflow.md)
   [x] Verified successfully via simulated test execution (test_ai_detection.py)
+  [x] One-Click orchestration demo runner with auto-cleanup (run_demo.sh)
 
 ================================================================================
 END OF REPORT

@@ -18,7 +18,7 @@ cd ~/pathgaurd
 ```
 
 #### What this script does automatically:
-1. Spins up the **POX Controller** using standard Spanning Tree modules.
+1. Spins up the **POX Controller** deploying the custom `pathguard_controller` module.
 2. Launches the **Flask Web Dashboard** (`http://localhost:5000`).
 3. Boots the **PathGuard 3-Switch Topology** and starts the **Real-Time AI Monitor** in the background.
 4. Sequentially triggers network fault injects (link degradations and link down events) to showcase dynamic recovery.
@@ -33,7 +33,7 @@ To inspect components individually, execute the commands in separate terminal ta
 cd ~/pathgaurd
 ./controller/run_pox.sh
 ```
-*Expected behavior:* POX starts and logs Openflow initialization.
+*Expected behavior:* POX starts, loads `webcore` on port 8000, and binds the `/reroute` REST handler.
 
 #### 2. Launch the Dashboard
 ```bash
@@ -59,4 +59,4 @@ During a fault event, verify the following lifecycle elements:
 2. **Timeline Persistent Logging**: Inspect `results/events.log` to verify historical timestamps of events.
 3. **Adaptive Monitoring**: The console outputs show intervals automatically speeding up from 10s down to 1s during critical events.
 4. **Network Health Scoring**: The Dashboard Header visually maps health from `100 (Healthy)` to `<60 (Critical)`.
-5. **Dynamic Path Failover**: Observe the SVG heatmap in the Dashboard dynamically turning down links to **Red** and triggering POX STP failover.
+5. **Dynamic Path Failover**: Observe the SVG heatmap in the Dashboard dynamically turning down links to **Red**, the Monitor REST call pushing explicit Flow Mods, and physical ICMP pings verifying restorations.

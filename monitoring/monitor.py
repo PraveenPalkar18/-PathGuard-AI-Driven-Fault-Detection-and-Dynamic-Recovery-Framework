@@ -44,8 +44,10 @@ import csv
 import os
 import re
 import signal
+import subprocess
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 from dataclasses import dataclass, fields, asdict
 from datetime import datetime, timezone
@@ -64,12 +66,7 @@ except ImportError:
     def calculate_health_score(avg_latency, max_loss, active_failures=0, instability_count=0): return 100
     def get_health_label(score): return "Healthy"
 
-try:
-    from recovery.recover import RecoveryEngine, log_event
-except ImportError:
-    class RecoveryEngine:
-        def trigger_recovery(self, failed_link, metrics): return {"success": True}
-    def log_event(msg, level="INFO"): print(f"[{level}] {msg}")
+from recovery.recover import RecoveryEngine, log_event
 
 # ──────────────────────────────────────────────────────────────────────
 # 1.  DATA MODEL
@@ -318,10 +315,10 @@ def log_record(record: MonitorRecord, verbose: bool = True):
 #     or called repeatedly by NetworkMonitor.
 # ──────────────────────────────────────────────────────────────────────
 
-def collect_once(net, ping_count: int = 4,
-                 ping_timeout: int = 10) -> List[MonitorRecord]:
+def collect_once(net, ping_count: int = 2,
+                 ping_timeout: int = 3) -> List[MonitorRecord]:
     """
-    Ping every unique host pair in *net* and return parsed records.
+    Ping every unique host pair in *net* in parallel and return parsed records.
 
     Parameters
     ----------
@@ -340,36 +337,52 @@ def collect_once(net, ping_count: int = 4,
     hosts = net.hosts
     records: List[MonitorRecord] = []
 
+    def probe_pair(src, dst) -> MonitorRecord:
+        dst_ip = dst.IP()
+        try:
+            # Execute ping on the Mininet host namespace using isolated Popen for safe concurrency
+            cmd = ["ping", "-c", str(ping_count), "-W", str(ping_timeout), dst_ip]
+            proc = src.popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, _ = proc.communicate()
+            output = stdout.decode("utf-8", errors="ignore")
+            return parse_ping(output, src.name, dst.name, dst_ip)
+        except Exception as exc:
+            # Graceful degradation — log the error but keep monitoring
+            err_rec = MonitorRecord(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                source=src.name,
+                destination=dst.name,
+                destination_ip=dst_ip,
+                packets_sent=ping_count,
+                packets_received=0,
+                packet_loss_pct=100.0,
+                rtt_min_ms=0.0,
+                rtt_avg_ms=0.0,
+                rtt_max_ms=0.0,
+                rtt_mdev_ms=0.0,
+                status="error",
+            )
+            print(f"  ⚠  Probe {src.name}→{dst.name} raised: {exc}")
+            return err_rec
+
+    # Gather unique directed pairs
+    pairs = []
     for src in hosts:
         for dst in hosts:
-            if src == dst:
-                continue
+            if src != dst:
+                pairs.append((src, dst))
 
-            dst_ip = dst.IP()
+    # Execute all ping probes concurrently using ThreadPoolExecutor
+    # Max workers bound by the number of pairs since IO-bound
+    with ThreadPoolExecutor(max_workers=max(1, len(pairs))) as executor:
+        future_to_pair = {executor.submit(probe_pair, s, d): (s, d) for s, d in pairs}
+        for future in as_completed(future_to_pair):
             try:
-                # Execute ping on the Mininet host namespace
-                cmd = f"ping -c {ping_count} -W {ping_timeout} {dst_ip}"
-                output = src.cmd(cmd)
-                record = parse_ping(output, src.name, dst.name, dst_ip)
+                res = future.result()
+                records.append(res)
             except Exception as exc:
-                # Graceful degradation — log the error but keep monitoring
-                record = MonitorRecord(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    source=src.name,
-                    destination=dst.name,
-                    destination_ip=dst_ip,
-                    packets_sent=ping_count,
-                    packets_received=0,
-                    packet_loss_pct=100.0,
-                    rtt_min_ms=0.0,
-                    rtt_avg_ms=0.0,
-                    rtt_max_ms=0.0,
-                    rtt_mdev_ms=0.0,
-                    status="error",
-                )
-                print(f"  ⚠  Probe {src.name}→{dst.name} raised: {exc}")
-
-            records.append(record)
+                # Failsafe just in case future.result() itself raises
+                pass
 
     return records
 
@@ -414,8 +427,8 @@ class NetworkMonitor:
         net,
         csv_path: str | Path = DEFAULT_CSV,
         interval: float = 10.0,
-        ping_count: int = 4,
-        ping_timeout: int = 10,
+        ping_count: int = 2,
+        ping_timeout: int = 3,
         verbose: bool = True,
         fault_detector=None,
     ):
@@ -627,16 +640,51 @@ class NetworkMonitor:
         # Dynamic Recovery Trigger
         if highest_severity == "CRITICAL" and not self.is_recovering:
             self.is_recovering = True
-            suspected_link = "s1-s2" # Generally the fault scenarion target link
             
-            # Evaluate links state from the current round's loss metrics
-            current_metrics = {
-                 "s1-s2": {"loss": max_loss, "latency": avg_latency, "status": "down" if max_loss >= 100 else "up"},
-                 "s2-s3": {"loss": 0.0, "latency": 5.0, "status": "up"},
-                 "s1-s3": {"loss": 0.0, "latency": 5.0, "status": "up"}
-            }
-            # Run the evaluation/recovery simulator
-            self.recovery_engine.trigger_recovery(suspected_link, current_metrics)
+            # Smart Fault Diagnosis based on the full triangle topology
+            # Topology bottlenecks:
+            # - h1/h2 to h4 uses s1-s2
+            # - h1/h2 to h3 uses s1-s3
+            # - h3 to h4 uses s2-s3
+            failed_pairs = list(active_link_failures)
+            
+            has_s1_s2_fail = any(
+                (src in ['h1','h2'] and dst == 'h4') or (src == 'h4' and dst in ['h1','h2'])
+                for src, dst in failed_pairs
+            )
+            has_s1_s3_fail = any(
+                (src in ['h1','h2'] and dst == 'h3') or (src == 'h3' and dst in ['h1','h2'])
+                for src, dst in failed_pairs
+            )
+            has_s2_s3_fail = any(
+                (src == 'h3' and dst == 'h4') or (src == 'h4' and dst == 'h3')
+                for src, dst in failed_pairs
+            )
+            
+            # Set accurate live states
+            link_statuses = {"s1-s2": "up", "s2-s3": "up", "s1-s3": "up"}
+            suspected_link = "s1-s2" # fallback default
+            
+            if has_s1_s2_fail:
+                suspected_link = "s1-s2"
+                link_statuses["s1-s2"] = "down"
+            elif has_s1_s3_fail:
+                suspected_link = "s1-s3"
+                link_statuses["s1-s3"] = "down"
+            elif has_s2_s3_fail:
+                suspected_link = "s2-s3"
+                link_statuses["s2-s3"] = "down"
+
+            # Build accurate metrics representation for current state
+            current_metrics = {}
+            for lk, state in link_statuses.items():
+                if state == "down":
+                    current_metrics[lk] = {"loss": 100.0, "latency": 0.0, "status": "down"}
+                else:
+                    current_metrics[lk] = {"loss": 0.0, "latency": avg_latency if avg_latency > 0 else 5.0, "status": "up"}
+                    
+            # Execute restoration routine passing global Mininet context
+            self.recovery_engine.trigger_recovery(suspected_link, current_metrics, net=self.net)
             self.is_recovering = False
 
         return alerts
@@ -694,12 +742,12 @@ def main():
         help="Seconds between monitoring rounds (default: 10)"
     )
     parser.add_argument(
-        "--ping-count", type=int, default=4,
-        help="ICMP packets per probe (default: 4)"
+        "--ping-count", type=int, default=2,
+        help="ICMP packets per probe (default: 2)"
     )
     parser.add_argument(
-        "--ping-timeout", type=int, default=10,
-        help="Ping timeout in seconds (default: 10)"
+        "--ping-timeout", type=int, default=3,
+        help="Ping timeout in seconds (default: 3)"
     )
     parser.add_argument(
         "--controller-ip", default="127.0.0.1",

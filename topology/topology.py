@@ -345,10 +345,17 @@ def run():
         monitor.start()
         info("*** Monitoring started (interval=%ss, csv=datasets/network_data.csv)\n" % args.monitor_interval)
 
-    # ── Interactive CLI ───────────────────────────────────────────
-    # The user (or an automated test harness) can now issue commands.
-    info("*** Entering Mininet CLI — type 'exit' or Ctrl-D to quit\n")
-    CLI(net)
+    # ── Interactive CLI or Blocking Loop ───────────────────────────
+    if not args.monitor:
+        info("*** Entering Mininet CLI — type 'exit' or Ctrl-D to quit\n")
+        CLI(net)
+    else:
+        info("*** Headless Monitoring Mode Active — press Ctrl-C to terminate topology\n")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            info("\n*** Interrupted by user. Shutting down...\n")
 
     # ── Cleanup ───────────────────────────────────────────────────
     if monitor:
