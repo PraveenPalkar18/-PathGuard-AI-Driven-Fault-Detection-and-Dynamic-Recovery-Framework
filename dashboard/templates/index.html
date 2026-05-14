@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PathGuard Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <h1>PathGuard</h1>
+                <span class="subtitle">AI-Driven Fault Detection & Recovery</span>
+            </div>
+            <div class="health-gauge">
+                <span class="label">Network Health</span>
+                <div class="health-score" id="health-val">--/100</div>
+            </div>
+            <div class="status-bar">
+                <span class="last-updated">Last Updated: <span id="timestamp-val">--</span></span>
+            </div>
+        </header>
+
+        <main>
+            <!-- KPI Cards -->
+            <section class="kpis">
+                <div class="kpi-card ai-status-card">
+                    <h3>AI Status</h3>
+                    <div class="kpi-value" id="ai-status-val">LOADING</div>
+                    <div class="ai-meta">
+                        <span id="confidence-val">--%</span> Conf. | <span id="explanation-val" class="explanation">--</span>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <h3>Packet Loss</h3>
+                    <div class="kpi-value"><span id="loss-val">--</span>%</div>
+                </div>
+                <div class="kpi-card">
+                    <h3>Average Latency</h3>
+                    <div class="kpi-value"><span id="latency-val">--</span> ms</div>
+                </div>
+                <div class="kpi-card">
+                    <h3>Recovery State</h3>
+                    <div class="kpi-value subtext" id="recovery-val">--</div>
+                </div>
+            </section>
+
+            <!-- Topology and Charts -->
+            <div class="main-content">
+                <div class="left-col">
+                    <section class="topology-panel">
+                        <h2>Network Topology (Heatmap)</h2>
+                        <div class="topology-container">
+                            <!-- SVG Topology -->
+                            <svg viewBox="0 0 400 300" class="network-svg" id="topology-svg">
+                                <!-- Links -->
+                                <line id="link-s1-s2" x1="200" y1="50" x2="100" y2="200" class="link up" />
+                                <line id="link-s2-s3" x1="100" y1="200" x2="300" y2="200" class="link up" />
+                                <line id="link-s1-s3" x1="200" y1="50" x2="300" y2="200" class="link up" />
+                                
+                                <!-- Host Links -->
+                                <line x1="200" y1="50" x2="120" y2="30" class="link up host-link" />
+                                <line x1="200" y1="50" x2="280" y2="30" class="link up host-link" />
+                                <line x1="100" y1="200" x2="50" y2="250" class="link up host-link" />
+                                <line x1="300" y1="200" x2="350" y2="250" class="link up host-link" />
+
+                                <!-- Switches -->
+                                <g id="node-s1" class="node switch" transform="translate(200, 50)">
+                                    <circle r="20" />
+                                    <text y="5" text-anchor="middle">s1</text>
+                                </g>
+                                <g id="node-s2" class="node switch" transform="translate(100, 200)">
+                                    <circle r="20" />
+                                    <text y="5" text-anchor="middle">s2</text>
+                                </g>
+                                <g id="node-s3" class="node switch" transform="translate(300, 200)">
+                                    <circle r="20" />
+                                    <text y="5" text-anchor="middle">s3</text>
+                                </g>
+
+                                <!-- Hosts -->
+                                <g class="node host" transform="translate(120, 30)">
+                                    <rect x="-15" y="-15" width="30" height="30" rx="5" />
+                                    <text y="4" text-anchor="middle">h1</text>
+                                </g>
+                                <g class="node host" transform="translate(280, 30)">
+                                    <rect x="-15" y="-15" width="30" height="30" rx="5" />
+                                    <text y="4" text-anchor="middle">h2</text>
+                                </g>
+                                <g class="node host" transform="translate(50, 250)">
+                                    <rect x="-15" y="-15" width="30" height="30" rx="5" />
+                                    <text y="4" text-anchor="middle">h4</text>
+                                </g>
+                                <g class="node host" transform="translate(350, 250)">
+                                    <rect x="-15" y="-15" width="30" height="30" rx="5" />
+                                    <text y="4" text-anchor="middle">h3</text>
+                                </g>
+                            </svg>
+                        </div>
+                    </section>
+
+                    <section class="charts-panel">
+                        <div class="chart-container">
+                            <h2>Real-Time Latency</h2>
+                            <canvas id="latencyChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <h2>Packet Loss</h2>
+                            <canvas id="lossChart"></canvas>
+                        </div>
+                    </section>
+                </div>
+                
+                <div class="right-col">
+                    <section class="path-panel">
+                        <h2>Smart Path Ranking</h2>
+                        <ul id="path-list" class="styled-list">
+                            <li>Loading paths...</li>
+                        </ul>
+                    </section>
+                    
+                    <section class="timeline-panel">
+                        <h2>Self-Healing Event Timeline</h2>
+                        <div class="timeline-container" id="timeline-container">
+                            <p class="subtext">Waiting for events...</p>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

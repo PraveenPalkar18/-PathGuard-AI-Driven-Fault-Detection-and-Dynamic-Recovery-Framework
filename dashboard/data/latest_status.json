@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-05-12T08:00:00Z",
+  "ai_status": "NORMAL",
+  "packet_loss_pct": 0.0,
+  "rtt_avg_ms": 5.2,
+  "recovery_status": "Idle",
+  "links": {
+    "s1-s2": "up",
+    "s2-s3": "up",
+    "s1-s3": "up"
+  },
+  "chart_data": {
+    "labels": ["08:00:00", "08:00:05", "08:00:10", "08:00:15", "08:00:20"],
+    "latency": [5.1, 5.2, 5.0, 5.3, 5.2],
+    "loss": [0, 0, 0, 0, 0]
+  }
+}
