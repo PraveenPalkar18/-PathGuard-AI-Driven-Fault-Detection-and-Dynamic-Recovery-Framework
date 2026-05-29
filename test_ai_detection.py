@@ -154,19 +154,48 @@ def main():
     faults = run_detection_round(net, detector, "📊 PHASE 1: Normal Traffic (all links up)")
 
     # ── Phase 2, 3, 4: Iterate through all links ──────────────────
+    import sys
+    project_root_str = str(project_root)
+    if project_root_str not in sys.path:
+        sys.path.insert(0, project_root_str)
+    try:
+        from topology.topo_graph import TopoGraph
+        topo = TopoGraph()
+        all_links = [link for link in topo.get_all_links()]
+    except ImportError:
+        topo = None
+        all_links = ["s1-s5", "s5-s8", "s3-s6"]
+
     fault_scenarios = [
-        ("s1", "s2"),
-        ("s2", "s3"),
-        ("s1", "s3")
+        ("s1", "s5"),
+        ("s5", "s8"),
+        ("s3", "s6")
     ]
+    valid_links = set(all_links)
+    for src, dst in fault_scenarios:
+        link_name = f"{min(src, dst)}-{max(src, dst)}"
+        if link_name not in valid_links:
+            raise RuntimeError(f"Invalid fault scenario: {link_name} is not present in topology")
 
     for link_src, link_dst in fault_scenarios:
-        link_name = f"{link_src}-{link_dst}"
+        # Standardize link name
+        link_name = f"{min(link_src, link_dst)}-{max(link_src, link_dst)}"
         
         # ── Phase 2: Degradation Warning ─────────────────────────────
         print(f"\n{YELLOW}⚠️  Injecting degradation on link {link_src} ↔ {link_dst}...{RESET}")
         log_event(f"WARNING: Degradation injected on link {link_name}")
-        net.get(link_src).cmd(f'tc qdisc change dev {link_src}-eth1 root netem delay 50ms loss 5%')
+        
+        # Programmatically find and degrade the interface on link_src
+        src_node = net.get(link_src)
+        dst_node = net.get(link_dst)
+        connections = src_node.connectionsTo(dst_node)
+        if connections:
+            intf = connections[0][0]
+            intf.config(loss=5, delay="50ms")
+            print(f"  ✓ Configured QoS on interface {intf.name} (5% loss, 50ms delay)")
+        else:
+            print(f"  ⚠️  Warning: Could not locate interface for link {link_src}-{link_dst}")
+            
         time.sleep(2)
         faults = run_detection_round(net, detector, f"⚠️  PHASE 2: Degradation {link_name} (Warning)")
 
@@ -186,19 +215,26 @@ def main():
         
         # Construct current link metrics for evaluation
         current_metrics = {}
-        for ln in ["s1-s2", "s2-s3", "s1-s3"]:
+        for ln in all_links:
             if ln == link_name:
                 current_metrics[ln] = {"loss": 100.0, "latency": 0.0, "status": "down"}
             else:
                 current_metrics[ln] = {"loss": 0.0, "latency": 5.0, "status": "up"}
         
         # Fire dynamic restoration API & validation ping
-        rec_res = recovery_engine.trigger_recovery(link_name, current_metrics, net=net)
+        rec_res = recovery_engine.trigger_recovery([link_name], current_metrics, net=net)
         t_recover = time.time()
 
         # ── Phase 4: Restore link & Reset POX Tables ────────────────────
         print(f"\n{YELLOW}🔄 Restoring link {link_src} ↔ {link_dst}...{RESET}")
-        net.get(link_src).cmd(f'tc qdisc change dev {link_src}-eth1 root netem delay 1ms loss 0%')
+        
+        # Restore original interface state
+        if connections:
+            intf = connections[0][0]
+            # Standard delay is 3ms or 5ms in port_map.json. We'll restore to normal 3ms.
+            intf.config(loss=0, delay="3ms")
+            print(f"  ✓ Restored QoS on interface {intf.name} (0% loss, 3ms delay)")
+            
         net.configLinkStatus(link_src, link_dst, "up")
         log_event(f"Link {link_name} restored physically.")
         
@@ -226,7 +262,7 @@ def main():
             "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "status": "SUCCESS",
             "failed_link": f"{link_src}-{link_dst}",
-            "selected_path": "Path_B",
+            "selected_path": rec_res.get("path_name", "None") if rec_res else "None",
             "duration_sec": round(t_recover - t_detect, 2)
         },
         # Maintain legacy stats for backwards compatibility

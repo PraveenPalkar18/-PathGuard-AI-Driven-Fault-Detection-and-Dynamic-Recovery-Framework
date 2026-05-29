@@ -7,14 +7,17 @@ Computes overall network health scores based on RTT, packet loss, and faults.
 
 from typing import List, Dict
 
+NORMAL_HEALTH_MIN = 85
+WARNING_HEALTH_MIN = 60
+
 def calculate_health_score(avg_latency: float, max_loss: float, active_failures: int = 0, instability_count: int = 0) -> int:
     """
     Compute Network Health Score (0-100)
     
     Rules:
-    - 90-100 = Healthy
-    - 60-89 = Degraded
-    - below 60 = Critical
+    - 85-100 = Healthy (NORMAL)
+    - 60-84 = Degraded (WARNING)
+    - below 60 = Critical (CRITICAL)
     """
     score = 100
     
@@ -36,12 +39,19 @@ def calculate_health_score(avg_latency: float, max_loss: float, active_failures:
     
     # Clamp to [0, 100]
     final_score = max(0, min(100, int(score)))
+    
+    # Force strict status tier alignments
+    if active_failures > 0 or max_loss >= 25.0:
+        final_score = min(final_score, 59)
+    elif max_loss >= 1.0 or instability_count > 0 or avg_latency >= 15.0:
+        final_score = min(final_score, 84)
+        
     return final_score
 
 def get_health_label(score: int) -> str:
-    if score >= 90:
+    if score >= NORMAL_HEALTH_MIN:
         return "Healthy"
-    elif score >= 60:
+    elif score >= WARNING_HEALTH_MIN:
         return "Degraded"
     else:
         return "Critical"

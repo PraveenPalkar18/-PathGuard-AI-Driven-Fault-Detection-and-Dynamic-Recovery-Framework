@@ -20,7 +20,7 @@ cd ~/pathgaurd
 #### What this script does automatically:
 1. Spins up the **POX Controller** deploying the custom `pathguard_controller` module.
 2. Launches the **Flask Web Dashboard** (`http://localhost:5000`).
-3. Boots the **PathGuard 3-Switch Topology** and starts the **Real-Time AI Monitor** in the background.
+3. Boots the **PathGuard 12-Switch Topology** and starts the **Real-Time AI Monitor** in the background.
 4. Sequentially triggers network fault injects (link degradations and link down events) to showcase dynamic recovery.
 
 ---
@@ -47,7 +47,7 @@ python3 dashboard/app.py
 cd ~/pathgaurd
 sudo python3 topology/topology.py --monitor
 ```
-*Expected behavior:* Mininet builds the 3-switch full-mesh topology. The monitoring loop automatically loads the Random Forest model `ai/model.pkl` and prints active telemetry.
+*Expected behavior:* Mininet builds the 12-switch hierarchical/mesh topology. The monitoring loop automatically loads the Random Forest model `ai/model.pkl` and prints active telemetry.
 
 ---
 
@@ -59,4 +59,4 @@ During a fault event, verify the following lifecycle elements:
 2. **Timeline Persistent Logging**: Inspect `results/events.log` to verify historical timestamps of events.
 3. **Adaptive Monitoring**: The console outputs show intervals automatically speeding up from 10s down to 1s during critical events.
 4. **Network Health Scoring**: The Dashboard Header visually maps health from `100 (Healthy)` to `<60 (Critical)`.
-5. **Dynamic Path Failover**: Observe the SVG heatmap in the Dashboard dynamically turning down links to **Red**, the Monitor REST call pushing explicit Flow Mods, and physical ICMP pings verifying restorations.
+5. **Dynamic Path Failover**: Observe the SVG heatmap in the Dashboard dynamically turning down links to **Red**, the Monitor REST call pushing explicit Flow Mods, and physical ICMP pings verifying restorations across the 12-switch mesh.

@@ -1,0 +1,209 @@
+{
+  "timestamp": "2026-05-27T16:28:15.079379+00:00",
+  "ai_status": "CRITICAL",
+  "confidence": 100.0,
+  "explanation": "Initiating dynamic SDN recovery for failed links: s4-s8",
+  "health_score": 0,
+  "health_label": "Critical",
+  "packet_loss_pct": 100.0,
+  "rtt_avg_ms": 0.0,
+  "recovery_status": "RECOVERING (Path_1: s8 \u2192 s5 \u2192 s1 \u2192 s7 \u2192 s12)",
+  "links": {
+    "s1-s2": "up",
+    "s1-s3": "up",
+    "s1-s4": "up",
+    "s1-s5": "up",
+    "s2-s3": "up",
+    "s2-s4": "up",
+    "s2-s6": "up",
+    "s3-s5": "up",
+    "s3-s6": "up",
+    "s4-s8": "down",
+    "s4-s9": "up",
+    "s5-s8": "up",
+    "s5-s10": "up",
+    "s6-s9": "up",
+    "s6-s11": "up",
+    "s6-s12": "up",
+    "s7-s10": "up",
+    "s7-s11": "up",
+    "s7-s12": "up"
+  },
+  "recovery_path_links": [],
+  "failed_links": [
+    "s4-s8"
+  ],
+  "degraded_links": [],
+  "round_number": 21,
+  "fault_analysis": {
+    "failed_links": [
+      {
+        "link": "s4-s8",
+        "layer": "access",
+        "loss_pct": 100.0,
+        "latency_ms": 0.0,
+        "status": "down",
+        "message": "Link s4-s8 DOWN \u2014 physical failure detected"
+      }
+    ],
+    "degraded_links": [],
+    "unstable_switches": [],
+    "affected_paths": [],
+    "root_causes": [
+      "Critical failure on s4-s8 (access layer)"
+    ],
+    "active_issues": []
+  },
+  "chart_data": {
+    "labels": [
+      "16:27:00",
+      "16:27:03",
+      "16:27:06",
+      "16:27:09",
+      "16:27:12",
+      "16:27:15",
+      "16:27:18",
+      "16:27:21",
+      "16:27:24",
+      "16:27:27",
+      "16:27:30",
+      "16:27:33",
+      "16:27:36",
+      "16:27:39",
+      "16:27:42",
+      "16:27:45",
+      "16:27:48",
+      "16:27:51",
+      "16:27:54",
+      "16:27:57"
+    ],
+    "latency": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "loss": [
+      100.0,
+      100.0,
+      100.0,
+      90.0,
+      50.0,
+      20.0,
+      5.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "path_rankings": [
+    {
+      "path": "Path_1",
+      "route": "s8 \u2192 s5 \u2192 s1 \u2192 s7 \u2192 s12",
+      "score": 89,
+      "status": "ACTIVE",
+      "reason": "Primary route \u2014 lowest latency + stable links",
+      "latency": 20.0,
+      "loss": 0.0
+    },
+    {
+      "path": "Path_2",
+      "route": "s8 \u2192 s5 \u2192 s3 \u2192 s6 \u2192 s12",
+      "score": 89,
+      "status": "STANDBY",
+      "reason": "Healthy standby backup route",
+      "latency": 20.0,
+      "loss": 0.0
+    },
+    {
+      "path": "Path_3",
+      "route": "s8 \u2192 s5 \u2192 s10 \u2192 s7 \u2192 s12",
+      "score": 89,
+      "status": "STANDBY",
+      "reason": "Healthy standby backup route",
+      "latency": 20.0,
+      "loss": 0.0
+    },
+    {
+      "path": "Path_4",
+      "route": "s8 \u2192 s5 \u2192 s1 \u2192 s2 \u2192 s6 \u2192 s12",
+      "score": 85,
+      "status": "STANDBY",
+      "reason": "Healthy standby backup route",
+      "latency": 25.0,
+      "loss": 0.0
+    },
+    {
+      "path": "Path_5",
+      "route": "s8 \u2192 s5 \u2192 s1 \u2192 s2 \u2192 s7 \u2192 s12",
+      "score": 85,
+      "status": "STANDBY",
+      "reason": "Healthy standby backup route",
+      "latency": 25.0,
+      "loss": 0.0
+    }
+  ],
+  "debug_info": {
+    "failed_link": "s4-s8",
+    "active_recovery_path": "None",
+    "recovery_trigger_reason": "Initiating dynamic SDN recovery for failed links: s4-s8",
+    "selected_path_score": "89/100",
+    "controller_action": "Active Monitoring",
+    "openflow_status": "STABLE (Full-Mesh)",
+    "telemetry_ts": "16:28:15",
+    "last_recovery_ts": "None"
+  },
+  "timeline": [
+    "[16:12:23] INFO: [DEMO] Starting Phase 1: NORMAL STATE",
+    "[16:12:24] WARNING: AI predicted WARNING on h6\u2192h11: ML classified WARNING: Elevated RTT latency (72.2ms) on h6\u2192h11 on link s4-s9",
+    "[16:12:25] WARNING: AI predicted WARNING on h1\u2192h16: ML classified WARNING: Elevated RTT latency (64.5ms) on h1\u2192h16 on link s4-s8",
+    "[16:12:26] WARNING: AI predicted WARNING on h1\u2192h21: ML classified WARNING: Elevated RTT latency (65.7ms) on h1\u2192h21 on link s4-s8",
+    "[16:12:27] WARNING: AI predicted WARNING on h1\u2192h11: ML classified WARNING: Elevated RTT latency (57.6ms) on h1\u2192h11 on link s5-s8",
+    "[16:12:33] WARNING: AI predicted WARNING on h6\u2192h24: ML classified WARNING: Elevated RTT latency (60.6ms) on h6\u2192h24 on link s6-s9",
+    "[16:12:34] WARNING: AI predicted WARNING on h11\u2192h24: ML classified WARNING: Elevated RTT latency (77.0ms) on h11\u2192h24 on link s10-s7",
+    "[16:12:42] WARNING: AI predicted WARNING on h21\u2192h1: ML classified WARNING: Elevated RTT latency (64.4ms) on h21\u2192h1 on link s12-s6",
+    "[16:12:45] WARNING: [DEMO] Starting Phase 2: WARNING STATE (Degrading link s4-s8)"
+  ],
+  "capture_proof": {
+    "state_label": "recovering",
+    "captured_at": "2026-05-27T16:28:15.122236+00:00",
+    "original_runtime_ts": "2026-05-27T16:28:15.079379+00:00",
+    "source": "Pre-seeded from real topology + model inference (run live demo to replace with live capture)",
+    "ai_model": "RandomForest (ai/model.pkl) \u2014 real inference",
+    "bfs_paths_computed": 5,
+    "failed_links_detected": [
+      "s4-s8"
+    ],
+    "real_confidence": 100.0,
+    "monitor_round": 21,
+    "recovery_route": "N/A",
+    "recovery_duration_sec": "N/A",
+    "proof_statement": "Pre-seeded realistic state \u2014 run sudo ./demo/run_real_fast_demo.sh to capture LIVE snapshots"
+  }
+}

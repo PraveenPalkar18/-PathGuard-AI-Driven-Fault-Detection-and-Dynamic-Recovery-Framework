@@ -147,10 +147,18 @@ def main():
 
     # ── Phase 2: Link failure scenarios ──────────────────────────
     fault_scenarios = [
-        ("s1", "s2", "Link s1-s2 down"),
-        ("s2", "s3", "Link s2-s3 down"),
-        ("s1", "s3", "Link s1-s3 down"),
+        ("s1", "s5", "Link s1-s5 (Core-Dist) down"),
+        ("s5", "s8", "Link s5-s8 (Dist-Access) down"),
+        ("s3", "s6", "Link s3-s6 (Core-Dist) down"),
     ]
+    valid_links = {tuple(sorted(link.split("-", 1))) for link in topo.get_all_links()}
+    filtered_scenarios = []
+    for node1, node2, desc in fault_scenarios:
+        if (min(node1, node2), max(node1, node2)) in valid_links:
+            filtered_scenarios.append((node1, node2, desc))
+        else:
+            print(f"⚠️  Skipping invalid topology fault scenario: {node1}-{node2}")
+    fault_scenarios = filtered_scenarios
 
     for node1, node2, desc in fault_scenarios:
         print("\n\n" + "=" * 60)

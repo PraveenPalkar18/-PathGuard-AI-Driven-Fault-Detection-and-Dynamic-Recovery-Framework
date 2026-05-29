@@ -186,10 +186,15 @@ section h2 {
 /* Topology */
 .topology-container {
     width: 100%;
-    height: 350px;
+    height: 750px; /* Increased to 750px to fully contain bottom switches S10/S12 and their hosts without clipping */
     display: flex;
     justify-content: center;
     align-items: center;
+    background: rgba(15, 23, 42, 0.45); /* Sleek Translucent slate background */
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 0 25px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
 }
 
 .network-svg {
@@ -199,26 +204,59 @@ section h2 {
 }
 
 .node circle, .node rect {
-    fill: #1e293b;
+    fill: #0f172a;
     stroke: var(--text-secondary);
     stroke-width: 2;
     transition: all 0.3s ease;
 }
 
 .node text {
-    fill: var(--text-primary);
-    font-family: 'Inter', sans-serif;
-    font-size: 12px;
-    font-weight: 600;
+    fill: #ffffff;
+    font-family: 'Inter', 'Outfit', sans-serif;
+    pointer-events: none;
+    text-anchor: middle;
+    dominant-baseline: central; /* Perfectly center text vertically inside circle */
+    font-weight: 700;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.9);
 }
 
-.switch circle { stroke: #818cf8; fill: rgba(129, 140, 248, 0.2); }
-.host rect { stroke: #38bdf8; fill: rgba(56, 189, 248, 0.2); }
+.node.switch text {
+    font-size: 11px;
+}
 
-/* Status Overrides for Nodes */
-.node.up circle { stroke: var(--status-normal); fill: rgba(16, 185, 129, 0.2); filter: drop-shadow(0 0 3px var(--status-normal)); }
-.node.warning circle { stroke: var(--status-warning); fill: rgba(245, 158, 11, 0.2); filter: drop-shadow(0 0 5px var(--status-warning)); }
-.node.down circle { stroke: var(--status-fault); fill: rgba(239, 68, 68, 0.2); filter: drop-shadow(0 0 8px var(--status-fault)); animation: pulse-glow 1.5s infinite alternate; }
+.node.host text {
+    font-size: 9px;
+    fill: #e2e8f0;
+}
+
+/* Layer specific structural stroke-widths */
+.switch.core circle { stroke-width: 3px; }
+.switch.distribution circle { stroke-width: 2.5px; }
+.switch.access circle { stroke-width: 2.5px; }
+.node.host circle { stroke-width: 1.5px; }
+
+/* Status-Based Coloring for all Switches & Hosts (Authoritative NOC Colors) */
+.node.up circle {
+    stroke: var(--status-normal) !important;
+    fill: rgba(16, 185, 129, 0.08) !important;
+    filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.45)) !important;
+}
+.node.warning circle {
+    stroke: var(--status-warning) !important;
+    fill: rgba(245, 158, 11, 0.25) !important;
+    filter: drop-shadow(0 0 10px var(--status-warning)) !important;
+}
+.node.down circle {
+    stroke: var(--status-fault) !important;
+    fill: rgba(239, 68, 68, 0.3) !important;
+    filter: drop-shadow(0 0 15px var(--status-fault)) !important;
+    animation: pulse-glow 1.2s infinite alternate;
+}
+.node.recovery circle {
+    stroke: #3b82f6 !important;
+    fill: rgba(59, 130, 246, 0.2) !important;
+    filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.65)) !important;
+}
 
 @keyframes pulse-glow {
     from { filter: drop-shadow(0 0 5px var(--status-fault)); }
@@ -309,4 +347,110 @@ section h2 {
 
 .timeline-event.warning { border-left-color: var(--status-warning); }
 .timeline-event.critical { border-left-color: var(--status-fault); }
-.timeline-event.normal { border-left-color: var(--status-normal); }
+.link.recovery {
+    stroke: #3b82f6;
+    stroke-dasharray: 8 4;
+    filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.8));
+    animation: dash 10s linear infinite;
+}
+
+/* Fault panels */
+.fault-analysis-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.fault-item {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.75rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    border-left: 3px solid var(--text-secondary);
+}
+
+.fault-item.critical { border-left-color: var(--status-fault); }
+.fault-item.warning { border-left-color: var(--status-warning); }
+.fault-item.normal { border-left-color: var(--status-normal); }
+.fault-item.recovery { border-left-color: #3b82f6; }
+
+.fault-item .fault-title {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.fault-item .fault-detail {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.issue-list li.issue-down { border-left-color: var(--status-fault); }
+.issue-list li.issue-warning { border-left-color: var(--status-warning); }
+.issue-list li.issue-recovery { border-left-color: #3b82f6; }
+.issue-list li.issue-normal { border-left-color: var(--status-normal); }
+
+.node.recovery circle { stroke: #3b82f6; fill: rgba(59, 130, 246, 0.2); }
+
+.status-RECOVERING { color: #3b82f6; text-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+.status-RECOVERED { color: var(--status-normal); }
+
+.health-gauge.warning {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+.health-gauge.critical {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* Debug Panel and Badges */
+.debug-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-glow);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.debug-panel-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.badge-success {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--status-normal);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-info {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.badge-warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--status-warning);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.text-critical {
+    color: var(--status-fault);
+    text-shadow: 0 0 5px rgba(239, 68, 68, 0.5);
+}
+
+.text-recovery {
+    color: #3b82f6;
+    text-shadow: 0 0 5px rgba(59, 130, 246, 0.5);
+}

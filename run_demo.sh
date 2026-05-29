@@ -33,11 +33,20 @@ echo "POX ready."
 
 # 2. Start Dashboard
 echo "➔ [2/3] Starting Web Dashboard in the background..."
-python3 dashboard/app.py > /dev/null 2>&1 &
+python3 dashboard/app.py > results/dashboard.log 2>&1 &
 
-# Wait 1 second for Flask to bind port 5000
-sleep 1
-echo "Dashboard initialized (http://localhost:5000)."
+# Wait until Flask binds port 5000 (model load can take 10-15s)
+echo "Waiting for Dashboard to bind port 5000..."
+for i in $(seq 1 40); do
+    if nc -z 127.0.0.1 5000 2>/dev/null; then
+        echo "Dashboard ready (http://localhost:5000)."
+        break
+    fi
+    sleep 0.5
+done
+if ! nc -z 127.0.0.1 5000 2>/dev/null; then
+    echo "Warning: Dashboard may not have started. Check results/dashboard.log"
+fi
 echo ""
 
 # 3. Start Mininet

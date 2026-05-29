@@ -2,9 +2,10 @@
 """
 PathGuard POX SDN Controller
 ----------------------------
-Replaces l2_learning and Spanning Tree with deterministic static-routing.
+Replaces l2_learning and Spanning Tree with dynamic shortest-path routing
+using the TopoGraph utility.
 Exposes a /reroute HTTP API to dynamically inject OpenFlow rules upon failure.
-Handles ARP locally to eliminate broadcast loops in the triangle topology.
+Handles ARP locally to eliminate broadcast loops in the hierarchical/mesh topology.
 
 Verification Steps:
 # Step 1: Start controller
@@ -17,13 +18,13 @@ sudo python3 topology/topology.py
 # Inside Mininet: pingall (should be 0% drop)
 
 # Step 4: Test REST failover manually
-curl -X POST -H "Content-Type: application/json" \
-     -d '{"failed_link": "s1-s2"}' \
+curl -X POST -H "Content-Type: application/json" \\
+     -d '{"failed_links": ["s1-s2"]}' \\
      http://127.0.0.1:8080/reroute
 
 # Step 5: Verify recovery
-curl -X POST -H "Content-Type: application/json" \
-     -d '{"failed_link": null}' \
+curl -X POST -H "Content-Type: application/json" \\
+     -d '{"failed_links": []}' \\
      http://127.0.0.1:8080/reroute
 """
 
@@ -35,70 +36,40 @@ from pox.lib.packet.ethernet import ethernet
 from pox.lib.packet.arp import arp
 from pox.web.webcore import SplitRequestHandler
 import json
+import sys
+import os
 
 log = core.getLogger()
 
-# Deterministic network mappings
-IP_TO_MAC = {
-    "10.0.0.1": "00:00:00:00:00:01",
-    "10.0.0.2": "00:00:00:00:00:02",
-    "10.0.0.3": "00:00:00:00:00:03",
-    "10.0.0.4": "00:00:00:00:00:04",
-}
+# Ensure project root is in path so we can import topology
+# Prefer explicit PATHGAURD_ROOT, otherwise derive from this file's parent directories
+project_root = os.environ.get("PATHGAURD_ROOT")
+if not project_root:
+    for candidate in [
+        "/home/wifi/pathgaurd",
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+    ]:
+        if os.path.isdir(os.path.join(candidate, "topology")):
+            project_root = candidate
+            break
+    if not project_root:
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-def get_scenario_mapping(failed_link=None):
-    """
-    Returns output ports for each switch (dpid) and destination MAC.
-    Topology Layout:
-      s1: h1=port 1, h2=port 2, s2=port 3, s3=port 4
-      s2: h4=port 1, s1=port 2, s3=port 3
-      s3: h3=port 1, s2=port 2, s1=port 3
-    """
-    # BASE MAP (Normal state)
-    mapping = {
-        1: { # s1
-            "00:00:00:00:00:01": 1, # direct to h1
-            "00:00:00:00:00:02": 2, # direct to h2
-            "00:00:00:00:00:03": 4, # s1 -> s3
-            "00:00:00:00:00:04": 3, # s1 -> s2
-        },
-        2: { # s2
-            "00:00:00:00:00:01": 2, # s2 -> s1
-            "00:00:00:00:00:02": 2, # s2 -> s1
-            "00:00:00:00:00:03": 3, # s2 -> s3
-            "00:00:00:00:00:04": 1, # direct to h4
-        },
-        3: { # s3
-            "00:00:00:00:00:01": 3, # s3 -> s1
-            "00:00:00:00:00:02": 3, # s3 -> s1
-            "00:00:00:00:00:03": 1, # direct to h3
-            "00:00:00:00:00:04": 2, # s3 -> s2
-        }
-    }
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
-    # FAILOVER MODIFICATIONS
-    if failed_link == "s1-s2":
-        log.info("⚠️ Applying s1-s2 Down: Rerouting through s1 <-> s3 <-> s2")
-        mapping[1]["00:00:00:00:00:04"] = 4 # s1 sends h4 traffic to s3
-        mapping[2]["00:00:00:00:00:01"] = 3 # s2 sends h1 traffic to s3
-        mapping[2]["00:00:00:00:00:02"] = 3 # s2 sends h2 traffic to s3
-    elif failed_link == "s2-s3":
-        log.info("⚠️ Applying s2-s3 Down: Rerouting through s2 <-> s1 <-> s3")
-        mapping[2]["00:00:00:00:00:03"] = 2 # s2 sends h3 traffic to s1
-        mapping[3]["00:00:00:00:00:04"] = 3 # s3 sends h4 traffic to s1
-    elif failed_link == "s1-s3":
-        log.info("⚠️ Applying s1-s3 Down: Rerouting through s1 <-> s2 <-> s3")
-        mapping[1]["00:00:00:00:00:03"] = 3 # s1 sends h3 traffic to s2
-        mapping[3]["00:00:00:00:00:01"] = 2 # s3 sends h1 traffic to s2
-        mapping[3]["00:00:00:00:00:02"] = 2 # s3 sends h2 traffic to s2
-
-    return mapping
-
+try:
+    from topology.topo_graph import TopoGraph
+except ImportError:
+    log.error("Failed to import TopoGraph! Make sure controller is run with access to project root.")
+    TopoGraph = None
 
 class RerouteHandler(SplitRequestHandler):
     """
     Handles REST requests at /reroute
-    Expected format: POST {"failed_link": "s1-s2"}
+    Expected format: POST {"failed_links": ["s1-s2", "s7-s1"]}
+    Backward compatibility: POST {"failed_link": "s1-s2"}
     """
     # Disable POX CookieGuard to prevent modern Python 3 bytes/str crashes in webcore
     pox_cookieguard = False
@@ -109,16 +80,29 @@ class RerouteHandler(SplitRequestHandler):
             body = self.rfile.read(length)
             data = json.loads(body)
             
-            failed_link = data.get("failed_link", None)
-            log.info(f"📥 Received Dynamic Reroute request for: {failed_link}")
+            failed_links = data.get("failed_links", [])
+            # Backward compatibility
+            if "failed_link" in data and data["failed_link"]:
+                failed_links.append(data["failed_link"])
+                
+            log.info(f"📥 Received Dynamic Reroute request for links: {failed_links}")
+
+            # CRITICAL FIX: Run enforce_scenario in a daemon thread so the HTTP
+            # response is returned immediately. enforce_scenario calls push_switch_rules
+            # for all 12 switches sequentially which takes >10s and caused urllib
+            # to time out in recover.py, silently dropping the entire reroute command.
+            import threading as _threading
+            _threading.Thread(
+                target=core.PathGuardController.enforce_scenario,
+                args=(failed_links,),
+                name="pathguard-enforce",
+                daemon=True
+            ).start()
             
-            # Trigger controller to push rules
-            core.PathGuardController.enforce_scenario(failed_link)
-            
-            if failed_link is None:
+            if not failed_links:
                 response = {"status": "restored"}
             else:
-                response = {"status": "success", "applied_link": failed_link}
+                response = {"status": "success", "applied_links": failed_links}
                 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -134,7 +118,18 @@ class RerouteHandler(SplitRequestHandler):
 class PathGuardController(object):
     def __init__(self):
         self.connections = {}
-        self.current_scenario = None
+        self.current_failed_links = []
+        
+        # Load topology graph
+        if TopoGraph:
+            self.topo = TopoGraph()
+            self.ip_to_mac = self.topo.get_ip_to_mac_map()
+            log.info(f"🗺️ Loaded topology with {len(self.topo.switches)} switches and {len(self.topo.hosts)} hosts")
+        else:
+            log.error("❌ TopoGraph not available!")
+            self.topo = None
+            self.ip_to_mac = {}
+            
         core.openflow.addListeners(self)
         log.info("🛡️ PathGuard Controller Module Initialized")
 
@@ -144,7 +139,7 @@ class PathGuardController(object):
         log.info(f"🔌 Switch Connection Established: s{dpid} (DPID={dpid})")
         
         # When a connection comes up, push our current scenario rules to it
-        self.push_switch_rules(dpid, self.current_scenario)
+        self.push_switch_rules(dpid, self.current_failed_links)
 
     def _handle_ConnectionDown(self, event):
         dpid = event.dpid
@@ -152,29 +147,61 @@ class PathGuardController(object):
             del self.connections[dpid]
         log.info(f"🔌 Switch Disconnected: s{dpid}")
 
-    def enforce_scenario(self, failed_link):
+    def enforce_scenario(self, failed_links):
         """Reprogram all connected switches with the target scenario."""
-        self.current_scenario = failed_link
-        log.info(f"⚙️ Reprogramming all switches for scenario: {failed_link or 'NORMAL'}")
+        self.current_failed_links = failed_links
+        log.info(f"⚙️ Reprogramming all switches for failed links: {failed_links or 'NONE (NORMAL)'}")
         for dpid in list(self.connections.keys()):
-            self.push_switch_rules(dpid, failed_link)
+            self.push_switch_rules(dpid, failed_links)
 
-    def push_switch_rules(self, dpid, failed_link):
-        """Clears old rules and pushes deterministic flow mods to a specific switch."""
+    def compute_forwarding_table(self, dpid_str, failed_links):
+        """
+        Computes MAC -> out_port rules for a specific switch by calculating 
+        shortest paths to all known hosts, avoiding failed_links.
+        """
+        rules = {}
+        if not self.topo:
+            return rules
+
+        for host_name, host_info in self.topo.hosts.items():
+            dst_mac = host_info['mac']
+            target_switch = host_info['switch']
+            host_port = host_info['port']
+            
+            # If the destination host is connected directly to this switch
+            if target_switch == dpid_str:
+                rules[dst_mac] = host_port
+                continue
+                
+            # Find shortest path from this switch to target switch
+            path = self.topo.shortest_path(dpid_str, target_switch, failed_links)
+            if path and len(path) > 1:
+                next_hop_switch = path[1]
+                out_port = self.topo.get_port(dpid_str, next_hop_switch)
+                if out_port:
+                    rules[dst_mac] = out_port
+            else:
+                pass # No path available
+                
+        return rules
+
+    def push_switch_rules(self, dpid, failed_links):
+        """Clears old rules and pushes dynamic shortest-path flows to a switch."""
         connection = self.connections.get(dpid)
         if not connection:
             return
+
+        dpid_str = f"s{dpid}"
 
         # 1. Flush old dynamic flows on the switch
         clear_msg = of.ofp_flow_mod(command=of.OFPFC_DELETE)
         connection.send(clear_msg)
         
-        # 2. Install Scenario Maps
-        mapping = get_scenario_mapping(failed_link)
-        switch_ports = mapping.get(dpid, {})
+        # 2. Compute dynamic rules for this switch avoiding failed_links
+        rules = self.compute_forwarding_table(dpid_str, failed_links)
         
-        for dest_mac, out_port in switch_ports.items():
-            # Target destination MAC rule
+        # 3. Install flows
+        for dest_mac, out_port in rules.items():
             msg = of.ofp_flow_mod()
             msg.match = of.ofp_match(dl_dst=EthAddr(dest_mac))
             msg.actions.append(of.ofp_action_output(port=out_port))
@@ -182,7 +209,7 @@ class PathGuardController(object):
             msg.hard_timeout = of.OFP_FLOW_PERMANENT
             connection.send(msg)
             
-        log.info(f"✅ Updated flow rules injected successfully into s{dpid}")
+        log.info(f"✅ Updated flow rules injected successfully into {dpid_str} ({len(rules)} rules)")
 
     def _handle_PacketIn(self, event):
         """
@@ -197,10 +224,9 @@ class PathGuardController(object):
             arp_packet = packet.payload
             if arp_packet.opcode == arp.REQUEST:
                 target_ip = str(arp_packet.protodst)
-                source_ip = str(arp_packet.protosrc)
                 
-                # Lookup deterministic MAC
-                target_mac = IP_TO_MAC.get(target_ip)
+                # Lookup dynamic MAC from TopoGraph
+                target_mac = self.ip_to_mac.get(target_ip)
                 if target_mac:
                     log.debug(f"💡 ARP Proxy: Resolving {target_ip} to {target_mac} for host at s{event.dpid}")
                     
@@ -244,3 +270,4 @@ def launch():
             log.error("❌ POX Web Server component not loaded! Ensure 'web' is loaded.")
             
     core.call_when_ready(startup, ["WebServer"])
+
